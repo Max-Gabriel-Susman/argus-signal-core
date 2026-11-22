@@ -14,48 +14,33 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  check:
-    name: Format, lint and test
+  build:
+    name: Build, lint and test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      # gradle/gradle-daemon-jvm.properties asks for JDK 25, so install that
+      # one rather than have Gradle download it on every run.
+      - uses: actions/setup-java@v6
         with:
-          components: rustfmt, clippy
+          distribution: temurin
+          java-version: 25
 
-      - uses: Swatinem/rust-cache@v2
+      # Caches Gradle's downloads between runs and checks gradle-wrapper.jar
+      # against Gradle's published checksums.
+      - uses: gradle/actions/setup-gradle@v6
 
-      - name: Format
-        run: cargo fmt --all --check
+      - name: Build both apps
+        run: ./gradlew assembleDebug
 
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Lint
+        run: ./gradlew lintDebug
 
-      - name: Tests
-        run: cargo test --workspace
-
-      - name: Replay smoke run
-        run: cargo run -p argus_signal_replay
-
-  no-std:
-    name: Core builds without std
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: thumbv7em-none-eabihf
-
-      # A bare-metal target has no std at all, so this fails as soon as the
-      # core, or anything it depends on, reaches for it.
-      - name: Build the core for a Cortex-M4F
-        run: cargo build -p argus_signal_core --target thumbv7em-none-eabihf
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest
 
   hygiene:
     name: Docs hygiene
