@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Replay smoke run
+        run: cargo run -p argus_signal_replay
+
+  no-std:
+    name: Core builds without std
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      # A bare-metal target has no std at all, so this fails as soon as the
+      # core, or anything it depends on, reaches for it.
+      - name: Build the core for a Cortex-M4F
+        run: cargo build -p argus_signal_core --target thumbv7em-none-eabihf
+
+  hygiene:
+    name: Docs hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: No em dashes in Markdown
+        run: |
+          dash=$(printf '\xe2\x80\x94')
+          if git grep -nF "$dash" -- '*.md'; then
+            echo "::error::Em dash in Markdown. Use a colon, comma or parentheses instead."
+            exit 1
+          fi
